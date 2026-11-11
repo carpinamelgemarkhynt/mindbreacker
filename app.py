@@ -1,15 +1,13 @@
 
 import streamlit as st
-import pygame
-import random
 import time
-from pathlib import Path
-from datetime import datetime, timedelta
+import random
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-
-# -------------------------------
+# ==========================================
 # PAGE CONFIGURATION
-# -------------------------------
+# ==========================================
 
 st.set_page_config(
     page_title="MINDBREAKER",
@@ -17,315 +15,472 @@ st.set_page_config(
     layout="centered"
 )
 
-
-# -------------------------------
+# ==========================================
 # SETTINGS
-# -------------------------------
+# ==========================================
 
-REMINDER_INTERVAL = 10  # Change to 60 for 1 minute
+REMINDER_INTERVAL = 60
+PH_TIMEZONE = ZoneInfo("Asia/Manila")
 
-BASE_DIR = Path(__file__).resolve().parent
-ALARM_FILE = BASE_DIR / "alarm.mp3"
+REMINDER_MESSAGES = [
+    "🧠 Stop scrolling. Start focusing!",
+    "📚 Your goals need your attention.",
+    "🔥 Focus now. Your future self will thank you.",
+    "💪 Discipline is choosing what matters.",
+    "⏳ Don't waste your precious time.",
+    "🎯 One task at a time. Keep going!",
+    "📖 Get back to studying. You can do it!"
+]
 
+# ==========================================
+# SESSION STATE
+# ==========================================
 
-# -------------------------------
-# AUDIO SYSTEM
-# -------------------------------
+defaults = {
+    "last_reminder": time.time(),
+    "current_message": "Welcome to MINDBREAKER! Stay focused.",
+    "reminder_count": 0,
+    "alarm_active": False,
+    "alarm_reason": "",
+    "reminders_enabled": True,
+    "timer_running": False,
+    "timer_deadline": None
+}
 
-@st.cache_resource
-def initialize_audio():
-    pygame.mixer.init()
-    return pygame
+for key, value in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
 
+# ==========================================
+# ALARM FUNCTIONS
+# ==========================================
 
-def play_alarm():
-    try:
-        if not ALARM_FILE.exists():
-            return False, "alarm.mp3 was not found."
-
-        audio = initialize_audio()
-
-        if not audio.mixer.music.get_busy():
-            audio.mixer.music.load(str(ALARM_FILE))
-            audio.mixer.music.play(-1)
-
-        return True, None
-
-    except Exception as error:
-        return False, str(error)
+def trigger_alarm(reason):
+    st.session_state.alarm_active = True
+    st.session_state.alarm_reason = reason
 
 
 def stop_alarm():
-    try:
-        if pygame.mixer.get_init():
-            pygame.mixer.music.stop()
-
-    except Exception:
-        pass
-
-
-# -------------------------------
-# REMINDER TOGGLE CALLBACK
-# -------------------------------
-
-def handle_reminder_toggle():
-
-    # WHEN TURNED OFF
-    if not st.session_state.reminders_enabled:
-
-        stop_alarm()
-
-        st.session_state.alarm_active = False
-        st.session_state.audio_error = None
-
-        st.session_state.last_reminder = time.time()
-
-        st.session_state.current_message = (
-            "Automatic reminders are currently OFF."
-        )
-
-    # WHEN TURNED ON
-    else:
-
-        stop_alarm()
-
-        st.session_state.alarm_active = False
-        st.session_state.audio_error = None
-
-        # Start a fresh countdown
-        st.session_state.last_reminder = time.time()
-
-        st.session_state.current_message = (
-            "Welcome back! Stay focused!"
-        )
-
-
-# -------------------------------
-# RANDOM REMINDER MESSAGES
-# -------------------------------
-
-reminders = [
-    "Stop scrolling! Your future needs your attention.",
-    "Ayaw kalimti imong goals. Balik sa imong study!",
-    "Small progress is still progress. Keep going!",
-    "Your dreams won't build themselves. Take action!",
-    "Focus now. Enjoy the results later.",
-    "Facebook can wait. Your future cannot!",
-    "Discipline today, success tomorrow.",
-    "You started for a reason. Don't give up!"
-]
-
-
-# -------------------------------
-# SESSION STATE
-# -------------------------------
-
-if "last_reminder" not in st.session_state:
-    st.session_state.last_reminder = time.time()
-
-if "current_message" not in st.session_state:
-    st.session_state.current_message = (
-        "Stay focused! Your journey starts with one step."
-    )
-
-if "reminder_count" not in st.session_state:
-    st.session_state.reminder_count = 0
-
-if "alarm_active" not in st.session_state:
     st.session_state.alarm_active = False
-
-if "reminders_enabled" not in st.session_state:
-    st.session_state.reminders_enabled = True
-
-if "audio_error" not in st.session_state:
-    st.session_state.audio_error = None
+    st.session_state.alarm_reason = ""
 
 
-# -------------------------------
-# MAIN INTERFACE
-# -------------------------------
+# ==========================================
+# CUSTOM CSS
+# ==========================================
 
-st.title("🧠 MINDBREAKER")
+st.markdown("""
+<style>
 
-st.subheader("STOP SCROLLING. START BUILDING.")
+/* Hide number input plus and minus buttons */
+div[data-testid="stNumberInput"] button {
+    display: none !important;
+}
 
-st.write(
-    "Your personal study and productivity reminder."
+/* Hide browser number input spinners */
+div[data-testid="stNumberInput"] input::-webkit-inner-spin-button,
+div[data-testid="stNumberInput"] input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+div[data-testid="stNumberInput"] input {
+    -moz-appearance: textfield;
+    text-align: center;
+    font-size: 25px;
+    font-weight: bold;
+}
+
+/* Main title */
+.main-title {
+    text-align: center;
+    font-size: 42px;
+    font-weight: bold;
+}
+
+/* Clock */
+.digital-clock {
+    text-align: center;
+    font-size: 35px;
+    font-weight: bold;
+}
+
+/* Timer display */
+.timer-display {
+    text-align: center;
+    font-size: 48px;
+    font-weight: bold;
+    padding: 15px;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+
+# ==========================================
+# HEADER
+# ==========================================
+
+st.markdown(
+    '<div class="main-title">🧠 MINDBREAKER</div>',
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    "<p style='text-align:center;'>Stop scrolling. Start focusing.</p>",
+    unsafe_allow_html=True
 )
 
 st.divider()
 
 
-# -------------------------------
-# REMINDER ON / OFF CONTROL
-# -------------------------------
+# ==========================================
+# PHILIPPINE DIGITAL CLOCK
+# ==========================================
 
-st.header("⚙️ Reminder Settings")
+@st.fragment(run_every=1)
+def live_clock():
+    now = datetime.now(PH_TIMEZONE)
 
-st.toggle(
-    "Enable Automatic Reminders",
-    key="reminders_enabled",
-    on_change=handle_reminder_toggle
-)
-
-if st.session_state.reminders_enabled:
-    st.success("Automatic reminders are ON.")
-else:
-    st.warning(
-        "Automatic reminders are OFF. Enjoy your break!"
+    st.markdown(
+        f"""
+        <div class="digital-clock">
+            {now.strftime("%I:%M:%S %p")}
+        </div>
+        <p style="text-align:center;">
+            {now.strftime("%A, %B %d, %Y")}
+        </p>
+        """,
+        unsafe_allow_html=True
     )
 
 
+st.subheader("🕒 Philippine Time")
+live_clock()
+
 st.divider()
 
 
-# -------------------------------
-# REMINDER SYSTEM
-# -------------------------------
+# ==========================================
+# DIGITAL STUDY ALARM SETTINGS
+# ==========================================
 
-st.header("🔥 Your Daily Reminder")
+st.subheader("⏰ Digital Study Timer")
 
+st.write("Enter your desired study duration.")
 
-@st.fragment(run_every="1s")
-def reminder_system():
+col1, col2, col3 = st.columns(3)
 
-    # AUTOMATIC REMINDERS
-    if st.session_state.reminders_enabled:
+with col1:
+    alarm_hours = st.number_input(
+        "Hours",
+        min_value=0,
+        max_value=9999,
+        value=0,
+        step=1,
+        key="alarm_hours"
+    )
 
-        current_time = time.time()
+with col2:
+    alarm_minutes = st.number_input(
+        "Minutes",
+        min_value=0,
+        max_value=59,
+        value=0,
+        step=1,
+        key="alarm_minutes"
+    )
 
-        elapsed = (
-            current_time - st.session_state.last_reminder
-        )
+with col3:
+    alarm_seconds = st.number_input(
+        "Seconds",
+        min_value=0,
+        max_value=59,
+        value=0,
+        step=1,
+        key="alarm_seconds"
+    )
 
-        if elapsed >= REMINDER_INTERVAL:
+total_seconds = (
+    alarm_hours * 3600
+    + alarm_minutes * 60
+    + alarm_seconds
+)
 
-            # Generate random reminder
-            message = random.choice(reminders)
+st.caption(
+    f"Selected duration: "
+    f"{alarm_hours:02d}:{alarm_minutes:02d}:{alarm_seconds:02d}"
+)
 
-            st.session_state.current_message = message
-            st.session_state.last_reminder = current_time
-            st.session_state.reminder_count += 1
+start_col, cancel_col = st.columns(2)
 
-            # Start looping alarm
-            success, error = play_alarm()
+with start_col:
+    if st.button(
+        "▶️ START TIMER",
+        type="primary",
+        use_container_width=True
+    ):
 
-            st.session_state.alarm_active = success
-            st.session_state.audio_error = error
+        if total_seconds <= 0:
+            st.warning("Please enter a valid timer duration.")
 
-            st.toast(
-                "🧠 MINDBREAKER: Time to refocus!"
+        else:
+            st.session_state.timer_deadline = (
+                time.time() + total_seconds
             )
 
-    # DISPLAY CURRENT REMINDER
-    st.info(st.session_state.current_message)
-
-    # ALARM CONTROLS
-    if st.session_state.alarm_active:
-
-        st.error("🔊 ALARM IS RINGING!")
-
-        if st.button(
-            "🛑 STOP ALARM",
-            type="primary",
-            use_container_width=True
-        ):
+            st.session_state.timer_running = True
 
             stop_alarm()
 
-            st.session_state.alarm_active = False
-            st.session_state.audio_error = None
+            st.session_state.current_message = (
+                "📚 Your study timer has started. Stay focused!"
+            )
 
-            st.success("Alarm stopped!")
+            st.success("Your study timer has started!")
 
-    elif st.session_state.audio_error:
+with cancel_col:
+    if st.button(
+        "⏹️ CANCEL TIMER",
+        use_container_width=True
+    ):
 
-        st.warning(
-            "Audio could not play: "
-            + st.session_state.audio_error
+        st.session_state.timer_running = False
+        st.session_state.timer_deadline = None
+
+        st.info("Your timer has been cancelled.")
+
+
+# ==========================================
+# TIMER COUNTDOWN
+# ==========================================
+
+@st.fragment(run_every=1)
+def study_timer():
+
+    if st.session_state.timer_running:
+
+        remaining = (
+            st.session_state.timer_deadline - time.time()
         )
 
-    elif not ALARM_FILE.exists():
+        if remaining <= 0:
 
-        st.caption(
-            "Add alarm.mp3 beside app.py "
-            "to enable alarm sound."
+            st.session_state.timer_running = False
+            st.session_state.timer_deadline = None
+
+            st.session_state.current_message = (
+                "⏰ Your study session is finished!"
+            )
+
+            trigger_alarm("Your study timer is finished!")
+
+            st.rerun()
+
+        else:
+
+            remaining = int(remaining)
+
+            hours = remaining // 3600
+            minutes = (remaining % 3600) // 60
+            seconds = remaining % 60
+
+            st.markdown(
+                f"""
+                <div class="timer-display">
+                    {hours:02d}:{minutes:02d}:{seconds:02d}
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            st.caption("⏳ Timer is running...")
+
+    else:
+
+        st.markdown(
+            """
+            <div class="timer-display">
+                00:00:00
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
-    # COUNTDOWN
+        st.caption("Timer is not running.")
+
+
+study_timer()
+
+st.divider()
+
+
+# ==========================================
+# AUTOMATIC REMINDERS
+# ==========================================
+
+st.subheader("🔔 Automatic Reminders")
+
+st.session_state.reminders_enabled = st.toggle(
+    "Enable automatic reminders",
+    value=st.session_state.reminders_enabled
+)
+
+
+@st.fragment(run_every=1)
+def automatic_reminders():
+
     if st.session_state.reminders_enabled:
 
         elapsed = (
             time.time() - st.session_state.last_reminder
         )
 
-        remaining = max(
-            0,
-            REMINDER_INTERVAL - elapsed
-        )
+        if elapsed >= REMINDER_INTERVAL:
 
-        next_reminder = (
-            datetime.now()
-            + timedelta(seconds=remaining)
-        )
+            message = random.choice(REMINDER_MESSAGES)
 
-        st.caption(
-            "Next reminder: "
-            + next_reminder.strftime("%I:%M:%S %p")
-        )
+            st.session_state.current_message = message
+            st.session_state.last_reminder = time.time()
+            st.session_state.reminder_count += 1
 
-    else:
+            trigger_alarm(message)
 
-        st.caption(
-            "Automatic reminder countdown is paused."
-        )
-
-    # REMINDER COUNTER
-    st.caption(
-        f"Reminders delivered: "
-        f"{st.session_state.reminder_count}"
-    )
+            st.rerun()
 
 
-reminder_system()
+automatic_reminders()
 
+st.info(st.session_state.current_message)
 
-st.divider()
+st.caption(
+    f"Total reminders: {st.session_state.reminder_count}"
+)
 
-
-# -------------------------------
+# ==========================================
 # MANUAL REMINDER
-# -------------------------------
-
-st.header("💡 Manual Reminder")
+# ==========================================
 
 if st.button(
-    "🧠 Give me a reminder now",
+    "🔔 REMIND ME NOW",
     use_container_width=True
 ):
 
-    st.session_state.current_message = random.choice(
-        reminders
-    )
+    message = random.choice(REMINDER_MESSAGES)
 
+    st.session_state.current_message = message
+    st.session_state.reminder_count += 1
     st.session_state.last_reminder = time.time()
 
-    st.session_state.reminder_count += 1
-
-    success, error = play_alarm()
-
-    st.session_state.alarm_active = success
-    st.session_state.audio_error = error
+    trigger_alarm(message)
 
     st.rerun()
 
 
-# -------------------------------
+# ==========================================
+# AUTOMATIC BROWSER ALARM
+# ==========================================
+
+if st.session_state.alarm_active:
+
+    st.error(
+        "🔊 ALARM: " + st.session_state.alarm_reason
+    )
+
+    st.components.v1.html(
+        """
+        <!DOCTYPE html>
+        <html>
+        <body>
+        <script>
+
+        const AudioContextClass =
+            window.AudioContext || window.webkitAudioContext;
+
+        if (!window.alarmContext) {
+            window.alarmContext = new AudioContextClass();
+        }
+
+        const ctx = window.alarmContext;
+
+        async function startAlarm() {
+
+            try {
+
+                await ctx.resume();
+
+                if (window.alarmInterval) {
+                    return;
+                }
+
+                function beep(frequency, delay) {
+
+                    const oscillator = ctx.createOscillator();
+                    const gain = ctx.createGain();
+
+                    oscillator.type = "square";
+                    oscillator.frequency.value = frequency;
+
+                    const startTime = ctx.currentTime + delay;
+
+                    gain.gain.setValueAtTime(0.15, startTime);
+                    gain.gain.setValueAtTime(0.15, startTime + 0.3);
+                    gain.gain.setValueAtTime(0, startTime + 0.4);
+
+                    oscillator.connect(gain);
+                    gain.connect(ctx.destination);
+
+                    oscillator.start(startTime);
+                    oscillator.stop(startTime + 0.4);
+                }
+
+                function ring() {
+                    beep(1000, 0);
+                    beep(1500, 0.5);
+                }
+
+                ring();
+
+                window.alarmInterval = setInterval(ring, 1300);
+
+            } catch (error) {
+
+                console.log("Browser audio playback was blocked:", error);
+
+            }
+        }
+
+        startAlarm();
+
+        </script>
+        </body>
+        </html>
+        """,
+        height=0
+    )
+
+    if st.button(
+        "🛑 STOP ALARM",
+        type="primary",
+        use_container_width=True
+    ):
+
+        stop_alarm()
+        st.rerun()
+
+
+# ==========================================
 # FOOTER
-# -------------------------------
+# ==========================================
 
 st.divider()
 
-st.caption(
-    "MINDBREAKER v2.0 | Stay focused. Build your future."
+st.markdown(
+    """
+    <div style="text-align:center;">
+        <b>MINDBREAKER</b><br>
+        <small>Stay focused. Stay disciplined. Keep improving.</small>
+    </div>
+    """,
+    unsafe_allow_html=True
 )
